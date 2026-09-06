@@ -1,0 +1,783 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PDF Range Extractor</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface2: #22263a;
+    --border: #2e3350;
+    --accent: #5b8dee;
+    --accent2: #7c5bf0;
+    --danger: #e05b5b;
+    --success: #4caf87;
+    --text: #e8eaf6;
+    --muted: #7b82a8;
+    --radius: 10px;
+  }
+
+  body {
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 32px 16px 60px;
+  }
+
+  h1 {
+    font-size: 1.7rem;
+    font-weight: 700;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin-bottom: 4px;
+  }
+  .subtitle { color: var(--muted); font-size: .9rem; margin-bottom: 32px; }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 24px;
+    width: 100%;
+    max-width: 780px;
+    margin-bottom: 20px;
+  }
+  .card-title {
+    font-size: .8rem;
+    font-weight: 600;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 16px;
+  }
+
+  /* Drop zone */
+  #drop-zone {
+    border: 2px dashed var(--border);
+    border-radius: var(--radius);
+    padding: 48px 24px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color .2s, background .2s;
+    user-select: none;
+  }
+  #drop-zone:hover, #drop-zone.drag-over {
+    border-color: var(--accent);
+    background: rgba(91,141,238,.06);
+  }
+  #file-input { display: none; }
+  .drop-icon { font-size: 2.5rem; margin-bottom: 12px; }
+  .drop-text { font-size: 1rem; color: var(--text); }
+  .drop-hint { font-size: .8rem; color: var(--muted); margin-top: 6px; }
+  .browse-btn {
+    display: inline-block;
+    margin-top: 14px;
+    padding: 9px 22px;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    color: #fff;
+    border: none;
+    border-radius: 7px;
+    font-size: .9rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity .15s;
+  }
+  .browse-btn:hover { opacity: .88; }
+
+  /* File info */
+  #file-info {
+    display: none;
+    align-items: center;
+    gap: 14px;
+    padding: 14px 18px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin-bottom: 20px;
+  }
+  #file-info .fi-icon { font-size: 1.8rem; }
+  #file-info .fi-name { font-weight: 600; word-break: break-all; }
+  #file-info .fi-meta { font-size: .82rem; color: var(--muted); margin-top: 2px; }
+  #file-info .fi-clear {
+    margin-left: auto;
+    background: none; border: none; color: var(--muted);
+    font-size: 1.2rem; cursor: pointer; padding: 4px 8px;
+    border-radius: 6px; transition: color .15s, background .15s;
+  }
+  #file-info .fi-clear:hover { color: var(--danger); background: rgba(224,91,91,.1); }
+
+  /* Ranges */
+  #ranges-section { display: none; }
+
+  .range-list { display: flex; flex-direction: column; gap: 10px; }
+
+  .range-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 14px;
+    animation: fadeIn .2s ease;
+  }
+  @keyframes fadeIn { from { opacity:0; transform:translateY(-4px); } to { opacity:1; transform:none; } }
+
+  .range-num {
+    width: 24px; height: 24px;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: .75rem; font-weight: 700; flex-shrink: 0;
+  }
+
+  .range-inputs { display: flex; align-items: center; gap: 8px; flex: 1; flex-wrap: wrap; }
+  .range-inputs label { font-size: .82rem; color: var(--muted); }
+  .range-inputs input[type=number] {
+    width: 72px;
+    padding: 7px 10px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-size: .9rem;
+    outline: none;
+    transition: border-color .15s;
+  }
+  .range-inputs input[type=number]:focus { border-color: var(--accent); }
+  .range-inputs input[type=number].err { border-color: var(--danger); }
+
+  .range-label-wrap { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 160px; }
+  .range-label-wrap input[type=text] {
+    flex: 1;
+    padding: 7px 10px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-size: .85rem;
+    outline: none;
+    transition: border-color .15s;
+  }
+  .range-label-wrap input[type=text]:focus { border-color: var(--accent); }
+
+  .range-pages-badge {
+    font-size: .78rem; color: var(--muted);
+    background: var(--bg); border-radius: 5px;
+    padding: 4px 8px; white-space: nowrap;
+  }
+
+  .btn-remove {
+    background: none; border: none;
+    color: var(--muted); cursor: pointer;
+    font-size: 1.1rem; padding: 4px 8px;
+    border-radius: 6px; transition: color .15s, background .15s;
+    flex-shrink: 0;
+  }
+  .btn-remove:hover { color: var(--danger); background: rgba(224,91,91,.1); }
+
+  .btn {
+    display: inline-flex; align-items: center; gap: 7px;
+    padding: 10px 20px;
+    border: none; border-radius: 8px;
+    font-size: .9rem; font-weight: 600;
+    cursor: pointer; transition: opacity .15s, transform .1s;
+  }
+  .btn:active { transform: scale(.97); }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+
+  .btn-primary {
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    color: #fff;
+  }
+  .btn-secondary {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+  }
+  .btn-success {
+    background: linear-gradient(135deg, var(--success), #38a675);
+    color: #fff;
+  }
+  .btn-danger {
+    background: linear-gradient(135deg, var(--danger), #c04444);
+    color: #fff;
+  }
+
+  .actions-bar {
+    display: flex; gap: 10px; flex-wrap: wrap;
+    margin-top: 16px; align-items: center;
+  }
+
+  /* Download section */
+  #dl-section { display: none; }
+
+  .dl-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 10px;
+    margin-bottom: 16px;
+  }
+  .dl-item {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .dl-item .dl-name { font-size: .88rem; font-weight: 600; word-break: break-all; }
+  .dl-item .dl-meta { font-size: .78rem; color: var(--muted); }
+  .dl-item .dl-status { font-size: .78rem; }
+  .dl-item .dl-status.ready { color: var(--success); }
+  .dl-item .dl-status.pending { color: var(--accent); }
+  .dl-item .dl-status.error { color: var(--danger); }
+  .dl-item .btn { padding: 7px 12px; font-size: .8rem; margin-top: 4px; }
+
+  /* Progress */
+  .progress-wrap {
+    height: 6px;
+    background: var(--border);
+    border-radius: 99px;
+    overflow: hidden;
+    margin-top: 14px;
+    display: none;
+  }
+  .progress-bar {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    border-radius: 99px;
+    transition: width .3s ease;
+    width: 0%;
+  }
+  .progress-label { font-size: .82rem; color: var(--muted); margin-top: 8px; text-align: center; display: none; }
+
+  /* Error / notice */
+  .notice {
+    padding: 10px 14px;
+    border-radius: 7px;
+    font-size: .85rem;
+    margin-top: 12px;
+    display: none;
+  }
+  .notice.error { background: rgba(224,91,91,.12); border: 1px solid rgba(224,91,91,.3); color: #f08080; }
+  .notice.info  { background: rgba(91,141,238,.1);  border: 1px solid rgba(91,141,238,.25); color: #9bbaf5; }
+  .notice.success { background: rgba(76,175,135,.1); border: 1px solid rgba(76,175,135,.3); color: #6dd4aa; }
+
+  .sep { height: 1px; background: var(--border); margin: 20px 0; }
+
+  /* Page preview strip */
+  .preview-hint {
+    font-size: .8rem; color: var(--muted);
+    background: var(--surface2);
+    border-radius: 6px; padding: 8px 12px;
+    margin-bottom: 16px;
+    display: none;
+  }
+
+  /* Responsive */
+  @media (max-width: 500px) {
+    .range-inputs { flex-direction: column; align-items: flex-start; }
+    .dl-grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<h1>📄 PDF Range Extractor</h1>
+<p class="subtitle">Extract multiple page ranges from a PDF — lossless, fast, no uploads</p>
+
+<!-- Step 1: Upload -->
+<input type="file" id="file-input" accept=".pdf,application/pdf">
+<div class="card" id="upload-card">
+  <div class="card-title">Step 1 — Load PDF</div>
+  <div id="drop-zone">
+    <div class="drop-icon">📂</div>
+    <div class="drop-text">Drag &amp; drop a PDF here</div>
+    <div class="drop-hint">Processed entirely in your browser — nothing is uploaded</div>
+    <button class="browse-btn" id="browse-btn" type="button">Browse File</button>
+  </div>
+  <div id="notice-load" class="notice error"></div>
+</div>
+
+<!-- File info bar -->
+<div id="file-info" style="max-width:780px;width:100%;">
+  <div class="fi-icon">📋</div>
+  <div>
+    <div class="fi-name" id="fi-name"></div>
+    <div class="fi-meta" id="fi-meta"></div>
+  </div>
+  <button class="fi-clear" id="btn-clear" title="Remove file">✕</button>
+</div>
+
+<!-- Step 2: Define Ranges -->
+<div class="card" id="ranges-section">
+  <div class="card-title">Step 2 — Define Page Ranges</div>
+  <div id="preview-hint" class="preview-hint"></div>
+  <div class="range-list" id="range-list"></div>
+  <div class="actions-bar">
+    <button class="btn btn-secondary" id="btn-add-range">＋ Add Range</button>
+    <button class="btn btn-primary" id="btn-extract">⚡ Extract All Ranges</button>
+  </div>
+  <div id="notice-ranges" class="notice error"></div>
+  <div class="progress-wrap" id="prog-wrap"><div class="progress-bar" id="prog-bar"></div></div>
+  <div class="progress-label" id="prog-label"></div>
+</div>
+
+<!-- Step 3: Downloads -->
+<div class="card" id="dl-section">
+  <div class="card-title">Step 3 — Download</div>
+  <div class="dl-grid" id="dl-grid"></div>
+  <div class="actions-bar">
+    <button class="btn btn-success" id="btn-dl-all">⬇ Download All as ZIP</button>
+    <button class="btn btn-secondary" id="btn-new">↩ Start Over</button>
+  </div>
+  <div id="notice-dl" class="notice info"></div>
+</div>
+
+<script>
+// ─── State ────────────────────────────────────────────────────────────────────
+let pdfBytes = null;      // ArrayBuffer of loaded PDF
+let totalPages = 0;
+let fileName = '';
+let ranges = [];          // [{start, end, label}]
+let extractedBlobs = [];  // [{label, blob, pages}]
+let rangeIdCounter = 0;
+
+// ─── DOM refs ─────────────────────────────────────────────────────────────────
+const dropZone      = document.getElementById('drop-zone');
+const fileInput     = document.getElementById('file-input');
+const noticeLoad    = document.getElementById('notice-load');
+const fileInfo      = document.getElementById('file-info');
+const fiName        = document.getElementById('fi-name');
+const fiMeta        = document.getElementById('fi-meta');
+const btnClear      = document.getElementById('btn-clear');
+const rangesSection = document.getElementById('ranges-section');
+const previewHint   = document.getElementById('preview-hint');
+const rangeList     = document.getElementById('range-list');
+const btnAddRange   = document.getElementById('btn-add-range');
+const btnExtract    = document.getElementById('btn-extract');
+const noticeRanges  = document.getElementById('notice-ranges');
+const progWrap      = document.getElementById('prog-wrap');
+const progBar       = document.getElementById('prog-bar');
+const progLabel     = document.getElementById('prog-label');
+const dlSection     = document.getElementById('dl-section');
+const dlGrid        = document.getElementById('dl-grid');
+const btnDlAll      = document.getElementById('btn-dl-all');
+const btnNew        = document.getElementById('btn-new');
+const noticeDl      = document.getElementById('notice-dl');
+
+// ─── DOM refs (extra) ─────────────────────────────────────────────────────────
+const browseBtn = document.getElementById('browse-btn');
+
+// ─── File loading ─────────────────────────────────────────────────────────────
+browseBtn.addEventListener('click', (e) => {
+  e.stopPropagation();
+  fileInput.value = '';        // reset so same file can be re-selected
+  fileInput.click();
+});
+
+dropZone.addEventListener('click', (e) => {
+  if (e.target === browseBtn) return;
+  fileInput.value = '';
+  fileInput.click();
+});
+
+dropZone.addEventListener('dragover', e => {
+  e.preventDefault();
+  e.stopPropagation();
+  dropZone.classList.add('drag-over');
+});
+dropZone.addEventListener('dragenter', e => {
+  e.preventDefault();
+  e.stopPropagation();
+  dropZone.classList.add('drag-over');
+});
+dropZone.addEventListener('dragleave', e => {
+  e.stopPropagation();
+  dropZone.classList.remove('drag-over');
+});
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  e.stopPropagation();
+  dropZone.classList.remove('drag-over');
+  const f = e.dataTransfer.files[0];
+  if (f) loadFile(f);
+});
+
+fileInput.addEventListener('change', () => {
+  const f = fileInput.files[0];
+  if (f) loadFile(f);
+});
+
+function loadFile(file) {
+  hideNotice(noticeLoad);
+  if (!file) return;
+  if (!file.name.toLowerCase().endsWith('.pdf') && file.type !== 'application/pdf') {
+    showNotice(noticeLoad, 'error', 'Please select a valid PDF file (.pdf).');
+    return;
+  }
+  showNotice(noticeLoad, 'info', '⏳ Loading PDF…');
+  noticeLoad.className = 'notice info';
+  noticeLoad.style.display = 'block';
+
+  const reader = new FileReader();
+  reader.onload = async (e) => {
+    try {
+      const arrayBuf = e.target.result;
+      const uint8 = new Uint8Array(arrayBuf);
+      // Validate: load with pdf-lib, get page count
+      const doc = await PDFLib.PDFDocument.load(uint8, {
+        ignoreEncryption: false,
+        throwOnInvalidObject: false,
+      });
+      totalPages = doc.getPageCount();
+      if (totalPages === 0) throw new Error('PDF has no pages.');
+      pdfBytes = uint8;   // store as Uint8Array
+      fileName = file.name.replace(/\.pdf$/i, '');
+      hideNotice(noticeLoad);
+      showFileInfo(file.name, file.size, totalPages);
+      showRangesSection();
+    } catch (err) {
+      showNotice(noticeLoad, 'error', 'Could not read PDF: ' + (err.message || err));
+    }
+  };
+  reader.onerror = () => showNotice(noticeLoad, 'error', 'File read error. Please try again.');
+  reader.readAsArrayBuffer(file);
+}
+
+function showFileInfo(name, size, pages) {
+  fiName.textContent = name;
+  fiMeta.textContent = `${formatBytes(size)} · ${pages} page${pages!==1?'s':''}`;
+  fileInfo.style.display = 'flex';
+}
+
+function showRangesSection() {
+  rangesSection.style.display = 'block';
+  previewHint.textContent = `Total pages: 1 – ${totalPages}. Enter inclusive page numbers.`;
+  previewHint.style.display = 'block';
+  rangeList.innerHTML = '';
+  ranges = [];
+  rangeIdCounter = 0;
+  dlSection.style.display = 'none';
+  dlGrid.innerHTML = '';
+  extractedBlobs = [];
+  addRange(); // auto-add first
+}
+
+// ─── Ranges ───────────────────────────────────────────────────────────────────
+function addRange(start='', end='', label='') {
+  const id = ++rangeIdCounter;
+  const idx = ranges.length;
+  const row = document.createElement('div');
+  row.className = 'range-row';
+  row.dataset.id = id;
+
+  const defaultLabel = `Range ${id}`;
+  row.innerHTML = `
+    <div class="range-num">${id}</div>
+    <div class="range-inputs">
+      <label>From page</label>
+      <input type="number" class="r-start" min="1" max="${totalPages}" placeholder="1" value="${start}" autocomplete="off">
+      <label>to</label>
+      <input type="number" class="r-end" min="1" max="${totalPages}" placeholder="${totalPages}" value="${end}" autocomplete="off">
+      <div class="range-pages-badge r-badge"></div>
+    </div>
+    <div class="range-label-wrap">
+      <input type="text" class="r-label" placeholder="${defaultLabel}" value="${label}" maxlength="80">
+    </div>
+    <button class="btn-remove" title="Remove range">🗑</button>
+  `;
+
+  const startInput = row.querySelector('.r-start');
+  const endInput   = row.querySelector('.r-end');
+  const badge      = row.querySelector('.r-badge');
+  const removeBtn  = row.querySelector('.btn-remove');
+
+  const updateBadge = () => {
+    const s = parseInt(startInput.value);
+    const e = parseInt(endInput.value);
+    if (!isNaN(s) && !isNaN(e) && s >= 1 && e >= s && e <= totalPages) {
+      badge.textContent = `${e - s + 1} page${e-s+1!==1?'s':''}`;
+      startInput.classList.remove('err');
+      endInput.classList.remove('err');
+    } else {
+      badge.textContent = '';
+      if (!isNaN(s) && (s < 1 || s > totalPages)) startInput.classList.add('err');
+      if (!isNaN(e) && (e < 1 || e > totalPages || e < s)) endInput.classList.add('err');
+    }
+  };
+
+  startInput.addEventListener('input', updateBadge);
+  endInput.addEventListener('input', updateBadge);
+  updateBadge();
+
+  removeBtn.addEventListener('click', () => {
+    row.remove();
+    renumberRanges();
+  });
+
+  rangeList.appendChild(row);
+  renumberRanges();
+  startInput.focus();
+}
+
+function renumberRanges() {
+  const rows = rangeList.querySelectorAll('.range-row');
+  rows.forEach((row, i) => {
+    row.querySelector('.range-num').textContent = i + 1;
+  });
+}
+
+btnAddRange.addEventListener('click', () => addRange());
+
+// ─── Extract ──────────────────────────────────────────────────────────────────
+btnExtract.addEventListener('click', extractRanges);
+
+async function extractRanges() {
+  hideNotice(noticeRanges);
+  const rows = rangeList.querySelectorAll('.range-row');
+
+  if (rows.length === 0) {
+    showNotice(noticeRanges, 'error', 'Add at least one page range.');
+    return;
+  }
+
+  // Collect and validate all ranges
+  const jobs = [];
+  let hasError = false;
+  let i = 0;
+  for (const row of rows) {
+    i++;
+    const s = parseInt(row.querySelector('.r-start').value);
+    const e = parseInt(row.querySelector('.r-end').value);
+    const lInput = row.querySelector('.r-label');
+    const label = lInput.value.trim() || `Range ${i}`;
+
+    if (isNaN(s) || isNaN(e)) {
+      showNotice(noticeRanges, 'error', `Range ${i}: please enter both start and end pages.`);
+      hasError = true; break;
+    }
+    if (s < 1 || s > totalPages) {
+      showNotice(noticeRanges, 'error', `Range ${i}: start page must be between 1 and ${totalPages}.`);
+      hasError = true; break;
+    }
+    if (e < s || e > totalPages) {
+      showNotice(noticeRanges, 'error', `Range ${i}: end page must be between ${s} and ${totalPages}.`);
+      hasError = true; break;
+    }
+    jobs.push({ start: s, end: e, label, pages: e - s + 1 });
+  }
+
+  if (hasError) return;
+
+  // Check for duplicate labels
+  const labels = jobs.map(j => j.label);
+  const dupes = labels.filter((l, i) => labels.indexOf(l) !== i);
+  if (dupes.length > 0) {
+    // Auto-deduplicate
+    const seen = {};
+    jobs.forEach(j => {
+      if (!seen[j.label]) seen[j.label] = 0;
+      seen[j.label]++;
+      if (seen[j.label] > 1) j.label = `${j.label} (${seen[j.label]})`;
+    });
+  }
+
+  // Disable UI
+  setExtracting(true);
+  extractedBlobs = [];
+  dlGrid.innerHTML = '';
+  dlSection.style.display = 'none';
+
+  setProgress(0, `Preparing...`);
+
+  try {
+    // Load source once — reuse for all ranges (no re-parsing)
+    const srcDoc = await PDFLib.PDFDocument.load(pdfBytes, {
+      ignoreEncryption: false,
+      throwOnInvalidObject: false,
+    });
+
+    for (let idx = 0; idx < jobs.length; idx++) {
+      const job = jobs[idx];
+      setProgress(
+        Math.round((idx / jobs.length) * 90),
+        `Extracting range ${idx + 1} of ${jobs.length}: "${job.label}" (pages ${job.start}–${job.end})…`
+      );
+
+      // Build page indices (0-based)
+      const pageIndices = [];
+      for (let p = job.start; p <= job.end; p++) pageIndices.push(p - 1);
+
+      // Create new doc for this range
+      const newDoc = await PDFLib.PDFDocument.create();
+      const copiedPages = await newDoc.copyPages(srcDoc, pageIndices);
+      copiedPages.forEach(pg => newDoc.addPage(pg));
+
+      // Save — use compress to keep size manageable but lossless
+      const outBytes = await newDoc.save({ useObjectStreams: true });
+      const blob = new Blob([outBytes], { type: 'application/pdf' });
+
+      extractedBlobs.push({ label: job.label, blob, pages: job.pages, start: job.start, end: job.end });
+
+      // Yield to UI
+      await yieldToUI();
+    }
+
+    setProgress(100, 'All ranges extracted!');
+    await yieldToUI();
+    buildDownloadSection();
+    setExtracting(false);
+    dlSection.style.display = 'block';
+    dlSection.scrollIntoView({ behavior: 'smooth' });
+
+    setTimeout(() => {
+      progWrap.style.display = 'none';
+      progLabel.style.display = 'none';
+    }, 1200);
+
+  } catch (err) {
+    setExtracting(false);
+    progWrap.style.display = 'none';
+    progLabel.style.display = 'none';
+    showNotice(noticeRanges, 'error', 'Extraction failed: ' + err.message);
+    console.error(err);
+  }
+}
+
+function buildDownloadSection() {
+  dlGrid.innerHTML = '';
+  noticeDl.style.display = 'none';
+
+  extractedBlobs.forEach((item, idx) => {
+    const card = document.createElement('div');
+    card.className = 'dl-item';
+    const safeLabel = sanitizeFilename(item.label);
+    card.innerHTML = `
+      <div class="dl-name">${escHtml(item.label)}</div>
+      <div class="dl-meta">Pages ${item.start}–${item.end} · ${item.pages} page${item.pages!==1?'s':''} · ${formatBytes(item.blob.size)}</div>
+      <div class="dl-status ready">✓ Ready</div>
+      <button class="btn btn-primary" data-idx="${idx}">⬇ Download</button>
+    `;
+    card.querySelector('button').addEventListener('click', () => {
+      downloadBlob(item.blob, `${fileName}_${safeLabel}.pdf`);
+    });
+    dlGrid.appendChild(card);
+  });
+}
+
+// ─── Download all as ZIP ──────────────────────────────────────────────────────
+btnDlAll.addEventListener('click', async () => {
+  if (extractedBlobs.length === 0) return;
+  btnDlAll.disabled = true;
+  btnDlAll.textContent = '⏳ Zipping…';
+  noticeDl.style.display = 'none';
+
+  try {
+    const zip = new JSZip();
+    for (const item of extractedBlobs) {
+      const safeLabel = sanitizeFilename(item.label);
+      const arrBuf = await item.blob.arrayBuffer();
+      zip.file(`${fileName}_${safeLabel}.pdf`, arrBuf);
+      await yieldToUI();
+    }
+    const zipBlob = await zip.generateAsync({
+      type: 'blob',
+      compression: 'DEFLATE',
+      compressionOptions: { level: 3 }  // fast, PDFs don't compress much more
+    });
+    downloadBlob(zipBlob, `${fileName}_ranges.zip`);
+    showNotice(noticeDl, 'success', `ZIP with ${extractedBlobs.length} PDFs downloaded.`);
+  } catch (err) {
+    showNotice(noticeDl, 'error', 'ZIP creation failed: ' + err.message);
+  }
+  btnDlAll.disabled = false;
+  btnDlAll.innerHTML = '⬇ Download All as ZIP';
+});
+
+// ─── Clear / Start over ───────────────────────────────────────────────────────
+btnClear.addEventListener('click', resetAll);
+btnNew.addEventListener('click', resetAll);
+
+function resetAll() {
+  pdfBytes = null; totalPages = 0; fileName = '';
+  extractedBlobs = []; ranges = []; rangeIdCounter = 0;
+  fileInput.value = '';
+  fileInfo.style.display = 'none';
+  rangesSection.style.display = 'none';
+  dlSection.style.display = 'none';
+  rangeList.innerHTML = '';
+  dlGrid.innerHTML = '';
+  hideNotice(noticeLoad);
+  hideNotice(noticeRanges);
+  progWrap.style.display = 'none';
+  progLabel.style.display = 'none';
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+function downloadBlob(blob, name) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  // Revoke after a small delay to allow download to start
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+}
+
+function setProgress(pct, msg) {
+  progWrap.style.display = 'block';
+  progLabel.style.display = 'block';
+  progBar.style.width = pct + '%';
+  progLabel.textContent = msg;
+}
+
+function setExtracting(on) {
+  btnExtract.disabled = on;
+  btnAddRange.disabled = on;
+  btnClear.disabled = on;
+  btnExtract.innerHTML = on ? '⏳ Extracting…' : '⚡ Extract All Ranges';
+}
+
+function showNotice(el, type, msg) {
+  el.className = 'notice ' + type;
+  el.textContent = msg;
+  el.style.display = 'block';
+}
+function hideNotice(el) { el.style.display = 'none'; }
+
+function formatBytes(b) {
+  if (b < 1024) return b + ' B';
+  if (b < 1048576) return (b/1024).toFixed(1) + ' KB';
+  return (b/1048576).toFixed(2) + ' MB';
+}
+
+function sanitizeFilename(s) {
+  return s.replace(/[^a-z0-9_\-\u0621-\u064A ]/gi, '_').replace(/\s+/g, '_').slice(0, 60);
+}
+
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function yieldToUI() {
+  return new Promise(r => setTimeout(r, 0));
+}
+</script>
+</body>
+</html>
