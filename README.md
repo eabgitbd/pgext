@@ -41,12 +41,6 @@ Or just download `pdf-range-extractor.html` and open it in any modern browser.
 
 ---
 
-## 📸 Screenshot
-
-> *(Add a screenshot here after deploying — `![Screenshot](screenshot.png)`)*
-
----
-
 ## 🛠️ Tech Stack
 
 | Library | Version | Purpose |
@@ -62,7 +56,7 @@ Both are loaded from [cdnjs.cloudflare.com](https://cdnjs.cloudflare.com) — no
 
 ```
 /
-├── pdf-range-extractor.html   # The entire application (HTML + CSS + JS)
+├── index.html   # The entire application (HTML + CSS + JS)
 └── README.md
 ```
 
